@@ -21,15 +21,30 @@
 - **让讨论延续下去。** 跟踪已加入文件的变化，长对话可压缩模型上下文，完整本地历史仍然保留。
 - **融入 Obsidian。** 跟随主题的气泡、可读推理、自定义字号，以及可调整高度的输入区。
 
-**轻量：**安装体积约 1.3 MiB（gzip 约 306 KiB）。无遥测，没有开发者运营的后端。
+无遥测，没有开发者运营的后端。
+
+## 选区浮窗探索
+
+本分支在原有侧栏之外增加选区浮窗：选中 Markdown 笔记中的文字，点击 **Ask for AI**，即可结合所属笔记全文获得解释。回答以 Markdown 展示，接口支持时会流式输出。
+
+在回答中继续选词、使用追问输入框，或点击模型根据该回答生成的探索问题，可以追加更多解释；空间不足时自动换行。拖动顶部可移动浮窗，拖动右下角可调整尺寸；点击 **保存**可在原笔记文件夹中创建 Markdown 对话记录。[查看浮窗探索指南](docs/selection-exploration_zh.md)。
 
 ## 快速开始
 
-需要**桌面版 Obsidian 1.13.7+**。
+需要**桌面版 Obsidian 1.13.7+**，以及用于构建的 Node.js 和 npm。上游已发布的社区插件不包含本分支功能。
 
-1. 在**设置 → 第三方插件 → 浏览**中搜索 **Quick Ask**，安装并启用。
-2. 打开 **Quick Ask → 模型连接**，配置 Base URL 与命名 API 密钥，再选择模型和协议。
-3. 打开侧栏，拖入选区或通过 `[[` 添加文件，然后发送问题。
+1. 克隆此 Fork 并构建功能分支：
+
+   ```sh
+   git clone https://github.com/Vuiora/obsidian-quick-ask.git
+   cd obsidian-quick-ask
+   git checkout feature/selection-exploration
+   npm ci
+   npm run build
+   ```
+
+2. 将仓库根目录生成的 `main.js`、`manifest.json`、`styles.css` 复制到 `<vault>/.obsidian/plugins/quick-ask/`（目录不存在时先创建），然后在 Obsidian 中启用或重新加载 Quick Ask。保留已有 `data.json` 和会话文件。
+3. 打开 **Quick Ask → 模型连接**，配置 Base URL 与命名 API 密钥，选择模型和协议。选中笔记文字并点击 **Ask for AI**，也可继续使用侧栏。
 
 连接／模型和角色的修改仅用于**新会话**。插件免费，需自备提供方 API 访问权限，模型／搜索费用另计。暂不支持移动端和 PDF 输入。
 
@@ -43,7 +58,7 @@
 
 ## 关于你的数据
 
-历史保存在本地。发送问题时，相关上下文会提交给你配置的提供方；模型发现和开启的搜索也会产生网络请求。插件不后台轮询，不能修改笔记或搜索任意 Vault 文件。
+历史保存在本地。发送问题时，相关上下文会提交给你配置的提供方；模型发现和开启的搜索也会产生网络请求。浮窗会把所属笔记全文、选中文本及相关上级回答发送给当前配置的模型服务。点击 **保存** 会在原笔记文件夹中新建 Markdown 文件，不会覆盖已有文件。
 
 [查看网络、费用与隐私详情](docs/user-guide_zh.md#账号费用与网络使用)，包括图片导出内容和缓存保留规则。
 
@@ -56,7 +71,3 @@
 ## 许可
 
 版权所有 2026 **FRANK-SMITH** · [Apache License 2.0](LICENSE) · [NOTICE](NOTICE)。依赖许可收录于 `main.js` 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-## 选区浮窗探索
-
-本分支的多级解释、追问、动态探索建议和保存功能见 [选区浮窗探索指南](docs/selection-exploration_zh.md)。

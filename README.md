@@ -21,15 +21,30 @@ A focused AI sidebar for your Obsidian notes, papers and images. Explain a term,
 - **Keep the conversation going.** Added files are tracked for changes; long conversations can compact model context while keeping the full local history.
 - **At home in Obsidian.** Theme-aware bubbles, readable reasoning, adjustable text and a resizable input area.
 
-**Lightweight:** about 1.3 MiB installed (≈306 KiB gzipped). No telemetry or developer-operated backend.
+No telemetry or developer-operated backend.
+
+## Selection exploration
+
+This fork adds a selection popup alongside the original sidebar. Select text in a Markdown note and click **Ask for AI** to explain it with the entire source note as context. Answers appear as Markdown and stream when the configured endpoint supports it.
+
+Select text in an answer and choose **继续解释** (Continue explaining), enter a follow-up, or choose one of the model-generated exploration questions. New explanations are appended; columns wrap to a new row when needed. Drag the header to move the popup or drag its bottom-right corner to resize it. Click **保存** (Save) to create a Markdown record in the source note’s folder. [Read the selection exploration guide](docs/selection-exploration.md).
 
 ## Get started
 
-Requires **Obsidian 1.13.7+ on desktop**.
+Requires **Obsidian 1.13.7+ on desktop** and Node.js with npm to build this branch. The published upstream community plugin does not include these fork features.
 
-1. In **Settings → Community plugins → Browse**, search for **Quick Ask**, install and enable it.
-2. Open **Quick Ask → Model connections**. Add your Base URL and named API secret, then choose a model and its protocol.
-3. Open the sidebar, drag in a passage or add a file with `[[`, and send your question.
+1. Clone this fork and build the feature branch:
+
+   ```sh
+   git clone https://github.com/Vuiora/obsidian-quick-ask.git
+   cd obsidian-quick-ask
+   git checkout feature/selection-exploration
+   npm ci
+   npm run build
+   ```
+
+2. Copy the generated `main.js`, `manifest.json`, and `styles.css` from the repository root into `<vault>/.obsidian/plugins/quick-ask/`, creating the directory if needed. Enable or reload **Quick Ask** in Obsidian. Keep any existing `data.json` and session files.
+3. Open **Quick Ask → Model connections**, configure your Base URL and named API secret, and select a model and protocol. Select note text and click **Ask for AI**, or use the sidebar.
 
 Connection/model and role changes apply to **new conversations**. Use your own provider API access; model/search fees are separate from the free plugin. Mobile and PDF input are not supported.
 
@@ -43,7 +58,7 @@ Connection/model and role changes apply to **new conversations**. Use your own p
 
 ## Your data
 
-History is stored locally. Submitting a question sends its selected context to your configured provider; model discovery and enabled search also make network requests. There is no background polling, and the plugin cannot edit notes or search arbitrary Vault files.
+History is stored locally. Submitting a question sends its selected context to your configured provider; model discovery and enabled search also make network requests. The popup sends the complete source note to your configured provider, along with the selected text and relevant parent answer. Clicking **保存** (Save) creates a new Markdown file in the source note’s folder without overwriting an existing file.
 
 Read the [network, costs and privacy details](docs/user-guide.md#accounts-costs-and-network-use), including what image exports contain and how cached files are retained.
 
