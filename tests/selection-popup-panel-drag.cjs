@@ -1,0 +1,14 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const src=fs.readFileSync('main.js','utf8'); const fn=src.slice(src.indexOf('function installPanelDrag('),src.indexOf('// A compact, independent explanation'));
+const events={}; const styles=new Set();let captured=null;
+const header={addEventListener:(n,f)=>events[n]=f,classList:{add:s=>styles.add(s),remove:s=>styles.delete(s)},setPointerCapture:id=>captured=id,hasPointerCapture:id=>captured===id,releasePointerCapture:()=>captured=null};
+const close={contains:target=>target==='close'};
+const panel={dataset:{},style:{},offsetWidth:200,offsetHeight:100,ownerDocument:{defaultView:{innerWidth:800,innerHeight:600}},getBoundingClientRect:()=>({left:100,top:100})};
+const c={};vm.runInNewContext(fn+';this.f=installPanelDrag',c);let dispose=c.f(panel,header,close);
+const e=(target,x,y)=>({target,button:0,pointerId:7,clientX:x,clientY:y,preventDefault(){this.prevented=true}});
+const button=e('close',110,110);events.pointerdown(button);assert.equal(captured,null);assert(!button.prevented);
+const start=e('header',110,110);events.pointerdown(start);assert(start.prevented);assert.equal(captured,7);assert(styles.has('is-dragging'));
+events.pointermove(e('header',160,140));assert.equal(panel.style.left,'150px');assert.equal(panel.style.top,'130px');
+events.pointermove(e('header',10000,10000));assert.equal(panel.style.left,'592px');assert.equal(panel.style.top,'492px');assert.equal(panel.style.maxHeight,'100px');
+events.pointerup(e('header',160,140));assert.equal(captured,null);assert(!styles.has('is-dragging'));let old=panel.style.left;events.pointermove(e('header',20,20));assert.equal(panel.style.left,old);
+events.pointerdown(e('header',110,110));dispose();assert.equal(captured,null);console.log('PASS drag, viewport clamp, close button, cleanup');

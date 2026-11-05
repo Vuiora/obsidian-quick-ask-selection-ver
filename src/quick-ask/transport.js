@@ -758,7 +758,8 @@ function handleFrame(frame, state, emit) {
     }
   }
   const declared = typeof frame.event === "string" && frame.event.length > 0 ? frame.event : null;
-  const type = declared ?? (payload !== null && typeof payload.type === "string" ? payload.type : null);
+  const payloadType = payload !== null && typeof payload.type === "string" ? payload.type : null;
+  const type = declared === "message" ? payloadType : (declared ?? payloadType);
   if (type === null) return;
 
   if (TERMINAL_EVENT_TYPES.has(type)) {

@@ -13,6 +13,65 @@ const { QUICK_ASK_VIEW_TYPE } = require("./view-type");
 const { sessionMenuEntries } = require("./session-navigation");
 const { createReferenceResolver } = require("./reference-resolution");
 
+// Construct with the host's real Node require; no redirect or TLS bypass.
+function createNodeStreamFetch(nodeRequire) {
+  const http = nodeRequire('http');
+  const https = nodeRequire('https');
+  // Bound reuse to a small pool and close idle sockets rather than keeping
+  // connections alive indefinitely. Each Agent still partitions by origin.
+  const agentOptions = { keepAlive: true, maxSockets: 4, maxTotalSockets: 8, maxFreeSockets: 2 };
+  const agents = { 'http:': new http.Agent(agentOptions), 'https:': new https.Agent(agentOptions) };
+  const idleTimers = new Map();
+  const watchedSockets = new WeakSet();
+  function clearIdle(socket) {
+    const timer = idleTimers.get(socket);
+    if (timer) clearTimeout(timer);
+    idleTimers.delete(socket);
+  }
+  for (const agent of Object.values(agents)) agent.on('free', socket => {
+    clearIdle(socket);
+    const timer = setTimeout(() => { idleTimers.delete(socket); socket.destroy(); }, 360000);
+    timer.unref?.(); idleTimers.set(socket, timer);
+    if (!watchedSockets.has(socket)) {
+      watchedSockets.add(socket);
+      socket.once('close', () => clearIdle(socket));
+    }
+  });
+  function nodeStreamFetch(url, options = {}) {
+    return new Promise((resolve, reject) => {
+      let target;
+      try { target = new URL(url); } catch (e) { reject(e); return; }
+      const transport = target.protocol === 'https:' ? https : target.protocol === 'http:' ? http : null;
+      if (!transport) { reject(new Error('Unsupported URL protocol')); return; }
+      const signal = options.signal;
+      const abortError = () => Object.assign(new Error('Request aborted'), { name: 'AbortError' });
+      if (signal?.aborted) { reject(abortError()); return; }
+      let response = null, settled = false;
+      const request = transport.request(target, { method: options.method || 'GET', headers: options.headers || {}, agent: agents[target.protocol] }, res => {
+        response = res; settled = true;
+        res.once('close', cleanup);
+        resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300,
+          headers: res.headers, body: res,
+          async text() { const chunks = []; for await (const chunk of res) chunks.push(chunk); return nodeRequire('buffer').Buffer.concat(chunks).toString('utf8'); } });
+      });
+      request.on('socket', clearIdle);
+      const onAbort = () => { const error = abortError(); if (response) response.destroy(error); request.destroy(error); };
+      function cleanup() { signal?.removeEventListener('abort', onAbort); }
+      request.on('error', error => { if (!settled) { settled = true; cleanup(); reject(error); } });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) { onAbort(); return; }
+      request.end(options.body);
+    });
+  }
+  nodeStreamFetch.dispose = () => {
+    for (const timer of idleTimers.values()) clearTimeout(timer);
+    idleTimers.clear();
+    for (const agent of Object.values(agents)) agent.destroy();
+  };
+  return nodeStreamFetch;
+}
+
+
 // The Quick Ask host seam, matching the factory convention of
 // src/obsidian-adapter.js. It builds the capability slices that Quick Ask core
 // modules receive. The core never sees the Obsidian application object: every
@@ -50,6 +109,8 @@ function createRoleResolver(configDirectory) {
 
 function createQuickAskEnvironment(plugin, { getLanguage = () => "en", canNetwork = () => true, getKeepCachedImages = () => true, viewType = QUICK_ASK_VIEW_TYPE } = {}) {
   const { vault, workspace } = plugin.app;
+  let nodeStreamFetch = null;
+  plugin.register(() => { nodeStreamFetch?.dispose(); nodeStreamFetch = null; });
   const configDirectory = vault.configDir ?? ".obsidian";
   const pluginDirectory = plugin.manifest?.dir ?? `${configDirectory}/plugins/${plugin.manifest?.id ?? "scholar-workbench"}`;
   const resolveRole = createRoleResolver(configDirectory);
@@ -686,11 +747,18 @@ function createQuickAskEnvironment(plugin, { getLanguage = () => "en", canNetwor
       // capability, so a host without the globals still streams and stops.
       TextDecoder: typeof globalThis.TextDecoder === "function" ? globalThis.TextDecoder : undefined,
       AbortController: typeof globalThis.AbortController === "function" ? globalThis.AbortController : undefined,
-      fetch(url, options) {
-        if (!canNetwork() || options?.signal?.aborted) return Promise.reject(Object.assign(new Error("Quick Ask is disabled"), { name: "AbortError" }));
+      async fetch(url, options) {
+        if (!canNetwork() || options?.signal?.aborted) throw Object.assign(new Error("Quick Ask is disabled"), { name: "AbortError" });
         const owner = ownerWindow();
         const fetch = owner?.fetch?.bind(owner) ?? globalThis.fetch.bind(globalThis);
-        return fetch(url, options);
+        try { return await fetch(url, options); }
+        catch (error) {
+          if (!canNetwork() || options?.signal?.aborted || error?.name === "AbortError") throw error;
+          // Desktop Node streams avoid browser CORS limitations while keeping TLS verification.
+          const hostRequire = require.desktop ?? require;
+          nodeStreamFetch ??= createNodeStreamFetch(hostRequire);
+          return nodeStreamFetch(url, options);
+        }
       },
       request(options) {
         const { signal, ...request } = options;

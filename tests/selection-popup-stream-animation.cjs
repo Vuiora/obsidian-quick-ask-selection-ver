@@ -1,0 +1,14 @@
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const source = fs.readFileSync('main.js','utf8');
+const start = source.indexOf('    function updateAnswer(text) {', source.indexOf('function installSelectionAsk('));
+const end = source.indexOf('\n    try {\n      const runtime', start);
+const fakeTail = {children:[], textContent:'', appendChild(node){ this.children.push(node); this.textContent += node.textContent; }};
+let scheduled = [];
+const ctx = { tail:fakeTail, body:{replaceChildren(){}}, doc:{createElement:()=>({})}, displayed:null, renderedText:'', lastText:'', requested:null, renderTimer:null, setTimeout(fn,ms){scheduled.push({fn,ms}); return scheduled.length;}, renderAnswer(){ctx.renders=(ctx.renders||0)+1;} };
+vm.runInNewContext(source.slice(start,end)+'; this.updateAnswer = updateAnswer;',ctx);
+ctx.updateAnswer('你'); ctx.updateAnswer('你好');
+assert.strictEqual(fakeTail.children.length,2); assert.deepStrictEqual(fakeTail.children.map(x=>x.textContent),['你','好']); assert(fakeTail.children.every(x=>x.className==='quick-ask-stream-chunk')); assert.strictEqual(scheduled.length,1); assert.strictEqual(scheduled[0].ms,240); assert.strictEqual(ctx.requested,'你好');
+scheduled[0].fn(); assert.strictEqual(ctx.renders,1); assert.strictEqual(ctx.renderTimer,null);
+ctx.updateAnswer('你好！'); assert.strictEqual(fakeTail.children[2].textContent,'！'); assert.strictEqual(scheduled.length,2);
+const css=fs.readFileSync('styles.css','utf8'); assert(css.includes('prefers-reduced-motion: reduce')); assert(css.includes('quick-ask-stream-fade'));
+console.log('PASS new deltas animate once, scheduled Markdown rendering, reduced motion');

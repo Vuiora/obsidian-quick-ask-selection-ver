@@ -1,0 +1,7 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const src=fs.readFileSync('main.js','utf8');const fn=src.slice(src.indexOf('function installPanelResize('),src.indexOf('// A compact, independent explanation'));
+const events={};let captured=null, saved=null;const handle={addEventListener:(n,f)=>events[n]=f,setPointerCapture:id=>captured=id,hasPointerCapture:id=>captured===id,releasePointerCapture:()=>captured=null};
+const panel={dataset:{},style:{},ownerDocument:{defaultView:{innerWidth:1200,innerHeight:800}},getBoundingClientRect:()=>({left:100,top:100,width:460,height:300})};
+const context={};vm.runInNewContext(fn+';this.install=installPanelResize',context);const dispose=context.install(panel,handle,size=>saved=size);
+const ev=(x,y)=>({pointerId:1,button:0,clientX:x,clientY:y,preventDefault(){},stopPropagation(){}});
+events.pointerdown(ev(560,400));events.pointermove(ev(760,500));assert.equal(panel.style.width,'660px');assert.equal(panel.style.height,'400px');assert.equal(saved.width,660);assert.equal(saved.height,400);assert.equal(panel.dataset.userSized,'true');events.pointermove(ev(2000,2000));assert.equal(panel.style.width,'1092px');assert.equal(panel.style.height,'692px');events.pointermove(ev(-1000,-1000));assert.equal(panel.style.width,'260px');assert.equal(panel.style.height,'120px');dispose();assert.equal(captured,null);let previous=panel.style.width;events.pointermove(ev(800,600));assert.equal(panel.style.width,previous);console.log('PASS resize dimensions, viewport bounds, minimum size and cleanup');

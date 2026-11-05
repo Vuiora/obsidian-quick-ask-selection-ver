@@ -68,6 +68,7 @@ function createConversation(options) {
 
   const searchClient = createSearchClient(environment);
   function toolsFor(state, rendererVersion = RENDERER_VERSION) {
+    if (state.selectionFast) return [];
     const route = state.requestSearch;
     const protocol = protocolFor(state.config);
     const tools = [protocol.functionTool(getFullFileTool(rendererVersion)), protocol.functionTool(GET_IMAGE_TOOL)];
@@ -80,6 +81,14 @@ function createConversation(options) {
       tools.push(protocol.functionTool(searchTool));
     }
     return tools;
+  }
+
+  // A selection explanation already includes the full note. Keep this prompt
+  // short while preserving the user's configured system instructions.
+  function instructionsFor(state, rendererVersion) {
+    const custom = state.config?.systemPrompt ?? normalizeQuickAskSettings(getSettings()?.quickAsk).systemPrompt ?? "";
+    if (!state.selectionFast) return buildInstructions({ rendererVersion, customSystemPrompt: custom });
+    return ["Use the supplied note as context and answer the user's question accurately and concisely.", custom.trim()].filter(Boolean).join("\n\n");
   }
 
   function searchEnabled(sessionId) {
@@ -368,10 +377,10 @@ function createConversation(options) {
     const { input, previousResponseId } = projectedRequest ?? requestInput(state, staged);
     const body = protocolFor(state.config).buildRequestBody({
       reasoningEffort: state.requestEffort ?? reasoningEffort(state.sessionId),
-      instructions: buildInstructions({ rendererVersion: staged.rendererVersion ?? RENDERER_VERSION, customSystemPrompt: config.systemPrompt ?? settings.systemPrompt }),
+      instructions: instructionsFor(state, staged.rendererVersion ?? RENDERER_VERSION),
       input,
       tools: toolsFor(state, staged.rendererVersion ?? RENDERER_VERSION),
-      toolChoice: state.requestSearch?.kind === "server" ? (state.requestSearch.toolChoice ?? "auto") : "auto",
+      toolChoice: state.selectionFast ? "none" : state.requestSearch?.kind === "server" ? (state.requestSearch.toolChoice ?? "auto") : "auto",
       parallelToolCalls: true,
       serverSearch: state.requestSearch?.kind === "server" ? state.requestSearch : undefined,
       previousResponseId,
@@ -431,7 +440,7 @@ function createConversation(options) {
     const items = inputItems ?? requestInput(state, { question, additions, rendererVersion, ...staged, localReplay: true }).input;
     const imageKeys = state.imageToolResults.keys(items);
     const price = priceProspectiveRequest({
-      instructions: buildInstructions({ rendererVersion, customSystemPrompt: state.config?.systemPrompt ?? "" }),
+      instructions: instructionsFor(state, rendererVersion),
       tools: toolsFor(state, rendererVersion),
       items: state.contextProjection.items(items),
       reserveTokens: budget.configured ? RESERVE : 0,
@@ -726,7 +735,7 @@ function createConversation(options) {
   }
 
   // One user turn: durable pending state, then the streamed attempt.
-  async function send(sessionId, question, { signal = null, additions = null, webSearch = undefined, webSearchRevision = undefined, reasoning = undefined, rendererVersion = RENDERER_VERSION, images = [] } = {}) {
+  async function send(sessionId, question, { signal = null, additions = null, webSearch = undefined, webSearchRevision = undefined, reasoning = undefined, rendererVersion = RENDERER_VERSION, images = [], selectionFast = false } = {}) {
     const state = stateFor(sessionId);
     // All asynchronous phases resolve only their owning session's tracker.
     if (!isEnabled()) return { status: "disabled" };
@@ -754,6 +763,7 @@ function createConversation(options) {
     if (!searchValidation.valid) return { status: "invalid", errors: searchValidation.errors };
     const selectedSearch = searchValidation.route;
     state.requestSearch = selectedSearch;
+    state.selectionFast = selectionFast === true;
     pushProjection(state, { kind: "search-route", route: selectedSearch.kind, provider: selectedSearch.provider });
 
     // Reserve the session before the first read or preflight await. Every
@@ -829,6 +839,7 @@ function createConversation(options) {
       return await state.task;
     } finally {
       state.preparing = false;
+      state.selectionFast = false;
       state.activeController = null;
       externalSignal?.removeEventListener?.("abort", abort);
       if (state.turn?.controller === controller) {

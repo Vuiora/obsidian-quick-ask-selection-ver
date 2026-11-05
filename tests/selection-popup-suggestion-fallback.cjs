@@ -1,0 +1,8 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const src=fs.readFileSync('main.js','utf8'); const start=src.indexOf('function parseSelectionSuggestions('), end=src.indexOf('// Save an explicit snapshot',start);
+let capture, calls=0;
+const proto={userMessage:content=>({role:'user',content}),buildRequestBody:args=>(capture=args,{model:args.model,input:args.input})};
+const ctx={require(name){if(name.endsWith('/settings')) return {sessionConfigSnapshot:()=>({model:'demo',baseUrl:'https://example.test',secretId:'ref'})}; if(name.endsWith('/protocol')) return {protocolFor:()=>proto}; if(name.endsWith('/transport')) return {streamAttempt: async options=>{calls++;ctx.last=options;return {status:'completed',text:'["问题甲？","问题乙？","问题丙？"]'}}}; throw Error(name);}};
+vm.runInNewContext(src.slice(start,end)+';this.parse=parseSelectionSuggestions;this.request=requestSelectionSuggestions;',ctx);
+const out=x=>JSON.stringify(ctx.parse(x)); assert.equal(out('```json\n["甲","乙","丙"]\n```'), '["甲","乙","丙"]');assert.equal(out('1. 甲\n2. 乙\n3. 丙'), '["甲","乙","丙"]');assert.equal(out('["甲","乙"]'),'[]');
+(async()=>{const plugin={settings:{values:()=>({quickAsk:{}})},quickAsk:{environment:{secrets:{resolve:()=> 'test'},network:{},scheduler:{}}}};const result=await ctx.request(plugin,'原问题','原回答',null);assert.equal(JSON.stringify(result),'["问题甲？","问题乙？","问题丙？"]');assert.equal(calls,1);assert(capture.input[0].content.includes('原问题'));assert(capture.input[0].content.includes('原回答'));assert.equal(capture.reasoningEffort,'none');assert.equal(capture.store,false); console.log('PASS independent answer-based suggestions, parsing and no session');})().catch(e=>{console.error(e);process.exitCode=1});

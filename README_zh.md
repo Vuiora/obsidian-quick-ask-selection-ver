@@ -56,3 +56,7 @@
 ## 许可
 
 版权所有 2026 **FRANK-SMITH** · [Apache License 2.0](LICENSE) · [NOTICE](NOTICE)。依赖许可收录于 `main.js` 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 选区浮窗探索
+
+本分支的多级解释、追问、动态探索建议和保存功能见 [选区浮窗探索指南](docs/selection-exploration_zh.md)。
