@@ -241,10 +241,13 @@ function installSelectionAsk(plugin) {
     function makeColumn(question, getAnswer, initialSuggestions = [], parentIndex = null, getStatus = () => 'complete') {
       const column = doc.createElement('div'); column.className = 'quick-ask-selection-column';
       const selected = doc.createElement('div'); selected.className = 'quick-ask-selection-selected'; selected.textContent = `解释：${question}`;
+      const searchStatus = doc.createElement('div'); searchStatus.className = 'quick-ask-selection-search-status'; searchStatus.setAttribute('role', 'status');
+      selected.style.order = '0'; searchStatus.style.order = '1'; searchStatus.hidden = true;
       const body = doc.createElement('div'); body.className = 'quick-ask-selection-answer';
       let suggestionsData = initialSuggestions, suggestionPending = false;
+      body.style.order = '2';
       const level = { body, sourcePath, question, answer: getAnswer, suggestions: () => suggestionsData, parentIndex, status: getStatus };
-      const suggestions = doc.createElement('div'); suggestions.className = 'quick-ask-selection-suggestions';
+      const suggestions = doc.createElement('div'); suggestions.className = 'quick-ask-selection-suggestions'; suggestions.style.order = '3';
       function setSuggestions(items, final = false) {
         suggestionsData = Array.isArray(items) ? items : [];
         suggestions.replaceChildren();
@@ -281,7 +284,7 @@ function installSelectionAsk(plugin) {
         finally { suggestionPending = false; }
       }
       setSuggestions(initialSuggestions, !!getAnswer());
-      const followup = doc.createElement('div'); followup.className = 'quick-ask-selection-followup';
+      const followup = doc.createElement('div'); followup.className = 'quick-ask-selection-followup'; followup.style.order = '4';
       const input = doc.createElement('input'); input.type = 'text'; input.placeholder = '继续提问…'; input.setAttribute('aria-label', '继续提问');
       const send = doc.createElement('button'); send.type = 'button'; send.textContent = '发送';
       function refreshFollowup() { input.disabled = !level.answer(); send.disabled = !level.answer() || !String(input.value ?? '').trim(); }
@@ -297,8 +300,8 @@ function installSelectionAsk(plugin) {
       input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); submitFollowup(); } });
       send.addEventListener('click', submitFollowup);
       followup.append(input, send); refreshFollowup();
-      column.append(selected, body, suggestions, followup); content.appendChild(column); activeLevels.push(level);
-      return { body, setSuggestions, refreshFollowup, generateSuggestions };
+      column.append(selected, body, suggestions, followup, searchStatus); content.appendChild(column); activeLevels.push(level);
+      return { body, searchStatus, setSuggestions, refreshFollowup, generateSuggestions };
     }
     const ancestors = history.map((entry, index) => {
       const column = makeColumn(entry.question, () => entry.answer, entry.suggestions ?? [], entry.parentIndex, () => entry.status || 'complete');
@@ -332,7 +335,7 @@ function installSelectionAsk(plugin) {
     content.scrollTop = content.scrollHeight;
     abort = new AbortController(); const controller = abort;
     const isCurrent = () => generation === current && !controller.signal.aborted;
-    let polling = null;
+    let polling = null, unsubscribeSearch = null;
     let suggestionQueue = Promise.resolve();
     for (const ancestor of ancestors) if (ancestor.entry.answer && !(ancestor.entry.suggestions?.length)) void ancestor.generateSuggestions();
     const ui = plugin.quickAsk.environment.ui;
@@ -340,7 +343,7 @@ function installSelectionAsk(plugin) {
     const tail = doc.createElement('span'); tail.className = 'quick-ask-selection-stream-tail';
     function clearRendered(element) { if (element) ui.clear(element); }
     const ancestorRoots = new Set();
-    clearAnswer = () => { if (renderTimer !== null) clearTimeout(renderTimer); renderTimer = null; clearRendered(displayed); displayed = null; for (const root of ancestorRoots) clearRendered(root); ancestorRoots.clear(); };
+    clearAnswer = () => { if (renderTimer !== null) clearTimeout(renderTimer); renderTimer = null; unsubscribeSearch?.(); unsubscribeSearch = null; clearRendered(displayed); displayed = null; for (const root of ancestorRoots) clearRendered(root); ancestorRoots.clear(); };
     const ancestorPaints = [];
     for (const { body: ancestorBody, entry } of ancestors) {
       const root = doc.createElement('div'); root.className = 'markdown-rendered quick-ask-selection-markdown';
@@ -387,6 +390,21 @@ function installSelectionAsk(plugin) {
       if (!isCurrent()) return;
       await runtime.load(session.id);
       if (!isCurrent()) return;
+      // Use the configured search route only when it is valid. Never claim to
+      // have searched when the service is unavailable or no tool was called.
+      let searchReady = false;
+      try { searchReady = runtime.validateSearchForSend?.(session.id, true)?.valid === true; } catch {}
+      currentColumn.searchStatus.hidden = false;
+      currentColumn.searchStatus.textContent = searchReady ? '需要时可联网查证' : '联网搜索不可用；请在 Quick Ask 设置中检查搜索服务及密钥。将基于现有信息回答。';
+      if (searchReady && typeof runtime.subscribe === 'function') {
+        unsubscribeSearch = runtime.subscribe(session.id, value => {
+          if (!isCurrent() || value?.projection?.kind !== 'search-status') return;
+          const state = value.projection.status;
+          if (state === 'running') currentColumn.searchStatus.textContent = '正在联网查证…';
+          else if (state === 'complete') currentColumn.searchStatus.textContent = '联网查证完成';
+          else if (state === 'failed') currentColumn.searchStatus.textContent = '联网查证失败；请检查搜索服务及网络。';
+        });
+      }
       // The file tracker handles reading, validation and model context framing.
       const tracker = plugin.quickAsk.trackerFor(session.id);
       const staged = tracker.stageFile(sourcePath);
@@ -404,12 +422,33 @@ function installSelectionAsk(plugin) {
       }, 150);
       const parentContext = parent ? `\n\n上一级问题：${parent.question}\n上一级回答：${parent.answer}\n${exploration ? '请结合笔记和上一级回答回答探索问题。' : '请结合这段上一级回答解释其中选中的文字。'}` : '';
       const task = exploration ? '请直接回答以下探索问题' : '请解释以下选中文本';
-      const result = await runtime.send(session.id, `${task}，使用与原文相同的语言，只说核心含义。中文约 600 字，根据问题适当调整；其他语言保持相当详略。结构清晰，不要展示推理过程或列举无关含义。回答正文结束后另起一行，严格输出 <!--QA_SUGGESTIONS-->，紧接着输出一个 JSON 数组，包含三个根据本回答内容生成的具体简短后续问题；不要用代码围栏，不要输出其他文字：\n\n${text}${parentContext}`, { signal: controller.signal, additions, webSearch: false, reasoning: "none", selectionFast: true });
+      const structure = exploration ? '' : '请按三个方面组织回答：\n1. 是什么：解释概念、作用和含义。\n2. 为什么设计：说明设计目的以及有依据时的背景；如果该内容并非设计出来的事物，可解释其产生或使用的原因，不要编造历史。\n3. 如何用：说明使用方法或实际应用；若不适用则说明不适用。\n';
+      const searchInstruction = searchReady ? '若笔记和已有知识不足以可靠回答，请先使用可用的联网搜索查证，再结合可靠来源作答；不要把整篇笔记或密钥作为搜索词，搜索失败或证据不足时要说明。' : '当前无法联网查证，不要声称已经搜索；如信息不足，请明确说明。';
+      const result = await runtime.send(session.id, `${task}，使用与原文相同的语言。${structure}${searchInstruction}以已有信息为依据；如果信息不足，请明确指出，不要猜测。中文约 600 字，根据问题适当调整；其他语言保持相当详略。结构清晰，不要展示推理过程或列举无关含义。回答正文结束后另起一行，严格输出 <!--QA_SUGGESTIONS-->，紧接着输出一个 JSON 数组，包含三个根据本回答内容生成的具体简短后续问题；不要用代码围栏，不要输出其他文字：\n\n${text}${parentContext}`, { signal: controller.signal, additions, webSearch: searchReady, reasoning: "none", selectionFast: true });
       if (!isCurrent()) return;
+      if (Array.isArray(result?.searchStatuses) && result.searchStatuses.some(status => status?.status === 'failed')) {
+        currentColumn.searchStatus.textContent = '联网查证失败；请检查搜索服务及网络。';
+      }
       finalStatus = result?.status === 'complete' || result?.status === 'completed' ? 'complete' : 'failed';
       clearInterval(polling); if (timer === polling) timer = null;
       const snapshot = runtime.snapshot(session.id);
-      if (snapshot?.text) { const parsed = splitQuickAskOutput(snapshot.text, true); updateAnswer(parsed.text); currentColumn.refreshFollowup(); currentColumn.setSuggestions(parsed.suggestions, true); if (!parsed.suggestions.length && parsed.text) void currentColumn.generateSuggestions(); }
+      if (snapshot?.text) {
+        const parsed = splitQuickAskOutput(snapshot.text, true);
+        const display = splitQuickAskOutput(typeof result?.displayText === 'string' ? result.displayText : snapshot.text, true);
+        let sources = [];
+        if (Array.isArray(result?.sources) && result.sources.length) {
+          const { normalizeSources } = require('../../src/quick-ask/web-search');
+          sources = normalizeSources(result.sources);
+        }
+        const sourceList = sources.length ? '\n\n**来源**\n' + sources.map(source => {
+          const title = String(source.title || source.url).replace(/[\\\[\]\r\n]/g, ' ').trim();
+          const url = source.url.replace(/[()<>]/g, ch => '%' + ch.charCodeAt(0).toString(16).toUpperCase());
+          return `- [${title}](${url})`;
+        }).join('\n') : '';
+        updateAnswer((display.text || parsed.text) + sourceList);
+        currentColumn.refreshFollowup(); currentColumn.setSuggestions(parsed.suggestions, true);
+        if (!parsed.suggestions.length && parsed.text) void currentColumn.generateSuggestions();
+      }
       else { currentColumn.setSuggestions([], true); body.textContent = result?.error?.message || (result?.errors ? '请检查 Quick Ask 的模型、API 地址和密钥设置。' : '') || '未能生成解释，请检查 Quick Ask 的模型和 API 设置。'; }
     } catch (error) {
       if (isCurrent()) {

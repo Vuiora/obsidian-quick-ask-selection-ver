@@ -11,6 +11,7 @@ const clickToolbar=()=>doc.body.children.find(x=>x.className==='quick-ask-select
 (async()=>{
  const step=()=>new Promise(setImmediate);
  mouseup({target:selectionNode});clickToolbar();await step();
+ assert(send[0].q.includes('1. 是什么')); assert(send[0].q.includes('2. 为什么设计')); assert(send[0].q.includes('3. 如何用')); assert(send[0].q.includes('不要猜测'));
 
  let cols=getPanel().children[1].children; let form=cols[0].children[3], input=form.children[0], button=form.children[1];
  assert(input.disabled);assert(button.disabled);input.value='why';input.listeners.input();assert(button.disabled);
@@ -19,7 +20,7 @@ const clickToolbar=()=>doc.body.children.find(x=>x.className==='quick-ask-select
  input.value='请解释原理';input.listeners.input();assert(!button.disabled);let prevented=false;
  input.listeners.keydown({key:'Enter',isComposing:true,preventDefault(){prevented=true}});assert(!prevented);assert.equal(send.length,1);
  input.listeners.keydown({key:'Enter',isComposing:false,preventDefault(){prevented=true}});await step();assert(prevented);assert.equal(send.length,2);
- assert(send[1].q.includes('请解释原理'));assert(send[1].q.includes('ANSWER_A'));assert(send[1].q.includes('600'));assert(send[0].options.signal.aborted);
+ assert(!send[1].q.includes('1. 是什么')); assert(send[1].q.includes('请解释原理'));assert(send[1].q.includes('ANSWER_A'));assert(send[1].q.includes('600'));assert(send[0].options.signal.aborted);
  assert.equal(getPanel().children[1].children.length,2);
  getPanel().children[0].children[0].listeners.click();assert(send[1].options.signal.aborted);
  console.log('PASS follow-up input, disabled state, IME and parent context');

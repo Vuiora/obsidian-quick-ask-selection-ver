@@ -15,7 +15,7 @@ const clickToolbar=()=>doc.body.children.find(x=>x.className==='quick-ask-select
  snap={text:'ANSWER_A\n<!--QA_SUGGESTIONS-->[\"A1\",\"A2\",\"A3\"]'};timers[0]();await step(); finish[0]({status:'complete'});await step(); assert.deepEqual(getPanel().children[1].children[0].children[2].children.map(x=>x.textContent),['A1','A2','A3']);
  let cols=getPanel().children[1].children;
  selected='a-child';selectionNode=cols[0].children[1];mouseup({target:selectionNode});clickToolbar();await step();
- assert(send[1].q.includes('ANSWER_A'));snap={text:'ANSWER_B\n<!--QA_SUGGESTIONS-->[\"B1\",\"B2\",\"B3\"]'};timers[1]();await step();finish[1]({status:'complete'});await step();
+ assert(send[1].q.includes('1. 是什么')); assert(send[1].q.includes('2. 为什么设计')); assert(send[1].q.includes('3. 如何用')); assert(send[1].q.includes('ANSWER_A'));snap={text:'ANSWER_B\n<!--QA_SUGGESTIONS-->[\"B1\",\"B2\",\"B3\"]'};timers[1]();await step();finish[1]({status:'complete'});await step();
  cols=getPanel().children[1].children;selected='b-child';selectionNode=cols[1].children[1];mouseup({target:selectionNode});clickToolbar();await step();
  assert(send[2].q.includes('ANSWER_B'));snap={text:'ANSWER_C'};timers[2]();await step();
  cols=getPanel().children[1].children;assert.equal(cols.length,3);selected='a-again';selectionNode=cols[0].children[1];mouseup({target:selectionNode});clickToolbar();await step();

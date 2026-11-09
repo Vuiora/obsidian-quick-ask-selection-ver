@@ -9,3 +9,5 @@ Drag the header to move the popup and its bottom-right corner to resize it. Clic
 The selection, complete source note, follow-up questions and relevant parent answers are sent to your configured model provider. Model and search costs depend on that provider.
 
 This fork is based on Quick Ask 1.0.7 and contains downstream customizations. The upstream `release:check` provenance guard rejects these changes; do not present this branch as an unchanged upstream synchronization.
+
+Selection explanations are organized as what it is, why it was designed, and how to use it. When information is insufficient, the model can use the configured Quick Ask search provider and cite sources. The model decides whether to search, so a search cannot be guaranteed on every request. Unavailable search or insufficient evidence is disclosed. Search queries can include keywords from the selected topic; avoid selecting material that should not be sent to the search provider.
