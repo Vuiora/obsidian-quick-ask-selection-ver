@@ -174,6 +174,15 @@ function installSelectionAsk(plugin) {
     const reservedHeight = el.classList.contains("quick-ask-selection-panel") ? Math.min(window.innerHeight * .65, 600) : el.offsetHeight;
     el.style.top = `${Math.max(margin, Math.min(below, window.innerHeight - reservedHeight - margin))}px`;
   }
+  function searchStatusText(status, provider, partial = false) {
+    const names = { duckduckgo: 'DuckDuckGo', bing: 'Bing', firecrawl: 'Firecrawl', exa: 'Exa', parallel: 'Parallel', perplexity: 'Perplexity', google: 'Google', openai: 'OpenAI', openrouter: 'OpenRouter', xai: 'xAI', bailian: '百炼', deepseek: 'DeepSeek' };
+    const label = names[String(provider ?? '').toLowerCase()];
+    const suffix = label ? `（${label}）` : '';
+    if (status === 'running') return `正在联网查证${suffix}…`;
+    if (status === 'complete') return `联网查证完成${suffix}`;
+    if (status === 'failed') return partial ? `部分联网查证失败${suffix}；请核实来源。` : `联网查证失败${suffix}；请检查搜索服务及网络。`;
+    return '';
+  }
   function selectionToolbar() {
     if (!plugin.quickAsk.isRegistered()) { clearToolbar(); return; }
     const selection = doc.getSelection();
@@ -399,10 +408,9 @@ function installSelectionAsk(plugin) {
       if (searchReady && typeof runtime.subscribe === 'function') {
         unsubscribeSearch = runtime.subscribe(session.id, value => {
           if (!isCurrent() || value?.projection?.kind !== 'search-status') return;
-          const state = value.projection.status;
-          if (state === 'running') currentColumn.searchStatus.textContent = '正在联网查证…';
-          else if (state === 'complete') currentColumn.searchStatus.textContent = '联网查证完成';
-          else if (state === 'failed') currentColumn.searchStatus.textContent = '联网查证失败；请检查搜索服务及网络。';
+          const { status, provider } = value.projection;
+          const message = searchStatusText(status, provider);
+          if (message) currentColumn.searchStatus.textContent = message;
         });
       }
       // The file tracker handles reading, validation and model context framing.
@@ -426,8 +434,10 @@ function installSelectionAsk(plugin) {
       const searchInstruction = searchReady ? '若笔记和已有知识不足以可靠回答，请先使用可用的联网搜索查证，再结合可靠来源作答；不要把整篇笔记或密钥作为搜索词，搜索失败或证据不足时要说明。' : '当前无法联网查证，不要声称已经搜索；如信息不足，请明确说明。';
       const result = await runtime.send(session.id, `${task}，使用与原文相同的语言。${structure}${searchInstruction}以已有信息为依据；如果信息不足，请明确指出，不要猜测。中文约 600 字，根据问题适当调整；其他语言保持相当详略。结构清晰，不要展示推理过程或列举无关含义。回答正文结束后另起一行，严格输出 <!--QA_SUGGESTIONS-->，紧接着输出一个 JSON 数组，包含三个根据本回答内容生成的具体简短后续问题；不要用代码围栏，不要输出其他文字：\n\n${text}${parentContext}`, { signal: controller.signal, additions, webSearch: searchReady, reasoning: "none", selectionFast: true });
       if (!isCurrent()) return;
-      if (Array.isArray(result?.searchStatuses) && result.searchStatuses.some(status => status?.status === 'failed')) {
-        currentColumn.searchStatus.textContent = '联网查证失败；请检查搜索服务及网络。';
+      if (Array.isArray(result?.searchStatuses)) {
+        const failed = result.searchStatuses.filter(item => item?.status === 'failed');
+        if (failed.length) currentColumn.searchStatus.textContent = searchStatusText('failed', failed.at(-1).provider,
+          result.searchStatuses.some(item => item?.status === 'complete'));
       }
       finalStatus = result?.status === 'complete' || result?.status === 'completed' ? 'complete' : 'failed';
       clearInterval(polling); if (timer === polling) timer = null;

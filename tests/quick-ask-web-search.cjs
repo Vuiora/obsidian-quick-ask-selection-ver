@@ -67,7 +67,7 @@ test('timeout remains TIMEOUT when the transport rejects immediately on abort',a
  let fire;
  const client=createSearchClient({scheduler:{delay:(ms,cb)=>{fire=cb;return 1;},cancelDelay(){}},secrets:{resolve:()=> 'key'},
  network:{request:({signal})=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Object.assign(new Error('cancelled'),{name:'AbortError'}))))}});
- const task=client.search('q',{kind:'local',provider:'duckduckgo'});fire();
+ const task=client.search('q',{kind:'independent',provider:'exa',secretId:'id'});fire();
  assert.equal((await task).code,'TIMEOUT');
 });
 test('a failing search callback releases the shared executor queue',async()=>{
@@ -232,4 +232,51 @@ test('provider search execution is explicitly chosen and never overrides the web
   assert.equal(searchRoute(false,{provider:'server'},{...config,providerSearchMode:'independent'}).kind,'off');
   assert.equal(searchRoute(true,{provider:'duckduckgo'},{...config,providerSearchMode:'independent'}).kind,'local');
   assert.equal(searchRoute(true,{provider:'server'},{protocol:'responses',model:'deepseek-flash',providerSearchMode:'independent'}).kind,'provider-api');
+});
+
+// User-approved fallback applies only to the configured DuckDuckGo route.
+const {parseBing,bingDestination}=require('../src/quick-ask/search-client');
+const bingLink = url => `https://www.bing.com/ck/a?u=a1${Buffer.from(url).toString('base64url')}&amp;x=1`;
+const bingPage = url => `<html><li class="b_algo"><h2><a href="${bingLink(url)}">Evidence &amp; explanation</a></h2><div><p>Snippet for a real source.</p></div></li></html>`;
+test('Bing parser returns only decoded safe destinations and detects challenge pages',()=>{
+ assert.deepEqual(parseBing(bingPage('https://example.org/topic?x=1&y=2')),[{url:'https://example.org/topic?x=1&y=2',title:'Evidence & explanation',snippet:'Snippet for a real source.'}]);
+ assert.equal(bingDestination(bingLink('javascript:alert(1)')),null);
+ assert.equal(bingDestination('https://www.bing.com/ck/a?u=bad'),null);
+ assert.equal(bingDestination('/search?q=foo'),null);
+ assert.throws(()=>parseBing('<form id="b_captcha">Verify you are human</form>'),/CHALLENGE/);
+ assert.throws(()=>parseBing('<html>Unexpected layout</html>'),/PARSE/);
+});
+test('DuckDuckGo success never contacts Bing',async()=>{
+ const calls=[];const client=createSearchClient({scheduler,secrets:{resolve:()=>''},network:{request:async ({url})=>{calls.push(url);return {status:200,text:'<a class="result__a" href="https://example.org">Evidence</a>'}}}});
+ const r=await client.search('query',{kind:'local',provider:'duckduckgo'});assert.equal(r.ok,true);assert.equal(r.provider,'duckduckgo');assert.equal(calls.length,1);
+});
+test('DuckDuckGo transport, HTTP, challenge and parse failures use Bing results',async()=>{
+ for(const kind of ['NETWORK','HTTP','AUTH','RATE_LIMIT','CHALLENGE','PARSE']){
+  const calls=[];let routed;const client=createSearchClient({scheduler,secrets:{resolve:()=>''},network:{request:async ({url})=>{
+   calls.push(url);if(calls.length>1)return {status:200,text:bingPage('https://example.org/evidence')};
+   if(kind==='NETWORK')throw Error('network');if(kind==='HTTP')return {status:500};if(kind==='AUTH')return {status:403};if(kind==='RATE_LIMIT')return {status:429};
+   return {status:200,text:kind==='CHALLENGE'?'<form id="challenge-form"></form>':'<html>Unexpected</html>'};
+  }}});
+  const r=await client.search('safe query',{kind:'local',provider:'duckduckgo'},{onRoute:x=>routed=x});
+  assert.equal(calls.length,2,kind);assert.equal(new URL(calls[1]).hostname,'www.bing.com');assert.equal(new URL(calls[1]).searchParams.get('q'),'safe query');
+  assert.equal(r.ok,true);assert.equal(r.provider,'bing');assert.equal(routed.provider,'bing');assert.equal(r.sources[0].url,'https://example.org/evidence');
+ }
+});
+test('DuckDuckGo and Bing attempts each have a bounded timeout',async()=>{
+ const callbacks=[];let count=0;const clock={delay:(ms,cb)=>(callbacks.push({ms,cb}),callbacks.length),cancelDelay(){}};
+ const client=createSearchClient({scheduler:clock,secrets:{resolve:()=>''},network:{request:()=>{count++;return new Promise(()=>{})}}});
+ const task=client.search('q',{kind:'local',provider:'duckduckgo'});await new Promise(setImmediate);assert.equal(callbacks[0].ms,10000);callbacks[0].cb();
+ await new Promise(setImmediate);assert.equal(count,2);assert.equal(callbacks[1].ms,10000);callbacks[1].cb();const r=await task;assert.equal(r.code,'TIMEOUT');assert.equal(r.provider,'bing');
+});
+test('cancellation never contacts Bing and other providers never fall back',async()=>{
+ const controller=new AbortController();let calls=0;const client=createSearchClient({scheduler,secrets:{resolve:()=> 'key'},network:{request:({signal})=>{calls++;return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(Error('aborted'))))}}});
+ const task=client.search('q',{kind:'local',provider:'duckduckgo'},{signal:controller.signal});controller.abort();assert.equal((await task).code,'ABORTED');assert.equal(calls,1);
+ let independent=0;const other=createSearchClient({scheduler,secrets:{resolve:()=> 'key'},network:{request:async()=>{independent++;throw Error('network')}}});
+ const failed=await other.search('q',{kind:'independent',provider:'exa',secretId:'id'});assert.equal(failed.code,'NETWORK');assert.equal(independent,1);
+});
+test('Bing challenge or invalid response is reported without invented sources',async()=>{
+ for(const html of ['<form id="b_captcha">Verify you are human</form>','<html>unexpected</html>']){
+  let calls=0;const client=createSearchClient({scheduler,secrets:{resolve:()=>''},network:{request:async()=>{calls++;return calls===1?{status:503}:{status:200,text:html}}}});
+  const r=await client.search('q',{kind:'local',provider:'duckduckgo'});assert.equal(r.ok,false);assert.equal(r.provider,'bing');assert.deepEqual(r.sources,[]);assert(['CHALLENGE','PARSE'].includes(r.code));
+ }
 });

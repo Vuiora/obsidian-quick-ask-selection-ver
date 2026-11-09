@@ -1018,7 +1018,7 @@ function createConversation(options) {
           for (const sample of samples) await sessionStore.append(state.sessionId, 'turn/usage', sample);
         } else result = await searchClient.search(query, route, { signal, config: state.config });
         turn.searchSources = normalizeSources([...turn.searchSources, ...(result.sources ?? [])]);
-        const status = { status: result.ok ? "complete" : "failed", provider: route.provider, code: result.code ?? null };
+        const status = { status: result.ok ? "complete" : "failed", provider: typeof result.provider === "string" && result.provider.trim() ? result.provider : route.provider, code: result.code ?? null };
         turn.searchStatuses.push(status);
         await sessionStore.append(state.sessionId, "search/result", { turnId: turn.turnId, query, ...status, sources: result.sources ?? [] });
         pushProjection(state, { kind: "search-status", ...status });

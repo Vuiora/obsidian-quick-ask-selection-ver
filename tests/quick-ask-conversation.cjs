@@ -802,6 +802,24 @@ test('selection explanations can search only when the model calls the configured
   assert.match(body.instructions, /cite source URLs/i);
 });
 
+test('selection search reports the actual Bing fallback provider in status and history', async () => {
+  const f = makeConversation({ settings: { webSearch: { provider: 'duckduckgo' } }, script: (url, options) => {
+    if (url.startsWith('https://html.duckduckgo.com/')) return { status: 202, text: 'anomaly.js' };
+    if (url.startsWith('https://www.bing.com/')) return { status: 200, text: '<li class="b_algo"><h2><a href="https://example.org/evidence">Source</a></h2><p>Evidence</p></li>' };
+    const body = JSON.parse(options.body);
+    return body.input.some(item => item.type === 'function_call_output')
+      ? sseResponse(streamedTurn({ text: 'Answer based on evidence' })) : searchTurn('public question');
+  } });
+  const id = await newSession(f.sessionStore, f.conversation, f.settings);
+  const result = await f.conversation.send(id, 'Explain', { selectionFast: true, webSearch: true });
+  assert.equal(result.status, 'complete');
+  assert.equal(result.sources[0].url, 'https://example.org/evidence');
+  assert.deepEqual(result.searchStatuses.map(item => [item.status, item.provider]), [['complete', 'bing']]);
+  const search = f.sessionStore.records.get(id).find(item => item.kind === 'search/result');
+  assert.equal(search.payload.provider, 'bing');
+  assert.deepEqual(f.projections.filter(item => item.kind === 'search-status').map(item => [item.status, item.provider]), [['running', 'duckduckgo'], ['complete', 'bing']]);
+});
+
 test('selection explanations leave search off when disabled and support native provider search', async () => {
   const off = makeConversation();
   const offId = await newSession(off.sessionStore, off.conversation, off.settings);
