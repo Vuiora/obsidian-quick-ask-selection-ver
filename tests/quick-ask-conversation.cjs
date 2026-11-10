@@ -774,35 +774,7 @@ function searchTurn(query = 'current facts') {
   return sseResponse(events);
 }
 
-test('selection explanations can search only when the model calls the configured search tool', async () => {
-  let searchRequests = 0;
-  const f = makeConversation({ settings: { webSearch: { provider: 'exa', secretId: 'search-key' } }, script: (url, options) => {
-    if (url === 'https://api.exa.ai/search') {
-      searchRequests++;
-      assert.equal(JSON.parse(options.body).query, 'public question');
-      assert.equal(options.body.includes('PRIVATE NOTE'), false);
-      return { status: 200, json: { results: [{ title: 'Source', url: 'https://example.org', highlights: ['evidence'] }] } };
-    }
-    const body = JSON.parse(options.body);
-    return body.input.some(item => item.type === 'function_call_output')
-      ? sseResponse(streamedTurn({ text: 'Evidence-based answer [Source](https://example.org)' }))
-      : searchTurn('public question');
-  } });
-  const id = await newSession(f.sessionStore, f.conversation, f.settings);
-  const result = await f.conversation.send(id, 'Explain', { selectionFast: true, webSearch: true,
-    additions: [{ kind: 'file', path: 'note.md', text: 'PRIVATE NOTE' }] });
-  assert.equal(result.status, 'complete');
-  assert.equal(searchRequests, 1);
-  assert.equal(result.sources[0].url, 'https://example.org/');
-  const body = JSON.parse(f.network.requests[0].options.body);
-  assert.deepEqual(body.tools.map(tool => tool.name), ['web_search']);
-  assert.equal(body.tool_choice, 'auto');
-  assert.match(body.instructions, /insufficient for a reliable answer/);
-  assert.match(body.instructions, /never send credentials or the full note/i);
-  assert.match(body.instructions, /cite source URLs/i);
-});
-
-test('selection search reports the actual Bing fallback provider in status and history', async () => {
+test('sidebar search reports the actual Bing fallback provider in status and history', async () => {
   const f = makeConversation({ settings: { webSearch: { provider: 'duckduckgo' } }, script: (url, options) => {
     if (url.startsWith('https://html.duckduckgo.com/')) return { status: 202, text: 'anomaly.js' };
     if (url.startsWith('https://www.bing.com/')) return { status: 200, text: '<li class="b_algo"><h2><a href="https://example.org/evidence">Source</a></h2><p>Evidence</p></li>' };
@@ -811,7 +783,7 @@ test('selection search reports the actual Bing fallback provider in status and h
       ? sseResponse(streamedTurn({ text: 'Answer based on evidence' })) : searchTurn('public question');
   } });
   const id = await newSession(f.sessionStore, f.conversation, f.settings);
-  const result = await f.conversation.send(id, 'Explain', { selectionFast: true, webSearch: true });
+  const result = await f.conversation.send(id, 'Explain', { webSearch: true });
   assert.equal(result.status, 'complete');
   assert.equal(result.sources[0].url, 'https://example.org/evidence');
   assert.deepEqual(result.searchStatuses.map(item => [item.status, item.provider]), [['complete', 'bing']]);
@@ -820,26 +792,16 @@ test('selection search reports the actual Bing fallback provider in status and h
   assert.deepEqual(f.projections.filter(item => item.kind === 'search-status').map(item => [item.status, item.provider]), [['running', 'duckduckgo'], ['complete', 'bing']]);
 });
 
-test('selection explanations leave search off when disabled and support native provider search', async () => {
-  const off = makeConversation();
-  const offId = await newSession(off.sessionStore, off.conversation, off.settings);
-  assert.equal((await off.conversation.send(offId, 'Local question', { selectionFast: true, webSearch: false })).status, 'complete');
-  const offBody = JSON.parse(off.network.requests[0].options.body);
-  assert.ok(!offBody.tools?.length);
-  assert.equal(offBody.tool_choice, 'none');
-  assert.match(offBody.instructions, /do not claim to have searched/);
-
-  const sufficient = makeConversation({ settings: { webSearch: { provider: 'exa', secretId: 'search-key' } } });
-  const sufficientId = await newSession(sufficient.sessionStore, sufficient.conversation, sufficient.settings);
-  assert.equal((await sufficient.conversation.send(sufficientId, 'Known question', { selectionFast: true, webSearch: true })).status, 'complete');
-  assert.equal(sufficient.network.requests.length, 1, 'no search request is made unless the model calls the tool');
-
-  const native = makeConversation({ settings: { webSearch: { provider: 'server' } } });
-  const nativeId = await newSession(native.sessionStore, native.conversation, native.settings);
-  assert.equal((await native.conversation.send(nativeId, 'Question', { selectionFast: true, webSearch: true })).status, 'complete');
-  const nativeBody = JSON.parse(native.network.requests[0].options.body);
-  assert.deepEqual(nativeBody.tools.map(tool => tool.type), ['web_search']);
-  assert.equal(nativeBody.tool_choice, 'auto');
+test('selection explanations never enable web search even when explicitly requested or on by default', async () => {
+  const f = makeConversation({ settings: { webSearch: { provider: 'server', defaultEnabled: true } } });
+  const id = await newSession(f.sessionStore, f.conversation, f.settings);
+  const result = await f.conversation.send(id, 'Explain', { selectionFast: true, webSearch: true });
+  assert.equal(result.status, 'complete');
+  assert.equal(f.network.requests.length, 1);
+  const body = JSON.parse(f.network.requests[0].options.body);
+  assert.ok(!body.tools?.length);
+  assert.equal(body.tool_choice, 'none');
+  assert.match(body.instructions, /do not claim to have searched/);
 });
 
 test('one-shot search is removed from the next request while sticky manual-off survives restart',async()=>{

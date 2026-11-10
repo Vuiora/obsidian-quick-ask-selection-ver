@@ -10,6 +10,5 @@ The selection, complete source note, follow-up questions and relevant parent ans
 
 This fork is based on Quick Ask 1.0.7 and contains downstream customizations. The upstream `release:check` provenance guard rejects these changes; do not present this branch as an unchanged upstream synchronization.
 
-Selection explanations are organized as what it is, why it was designed, and how to use it. When information is insufficient, the model can use the configured Quick Ask search provider and cite sources. The model decides whether to search, so a search cannot be guaranteed on every request. Unavailable search or insufficient evidence is disclosed. Search queries can include keywords from the selected topic; avoid selecting material that should not be sent to the search provider.
 
-When DuckDuckGo is configured and fails due to a network error, timeout, verification challenge, or unparseable results, the plugin automatically retries the same query using Bing. The query is therefore sent to Bing; the popup shows which service returned results. If both services are unavailable, check your network or configure another search provider.
+Selection explanations cover what it is, why it was designed, and how to use it. The popup does not perform web searches.

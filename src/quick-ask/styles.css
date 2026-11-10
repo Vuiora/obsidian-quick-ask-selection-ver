@@ -1227,6 +1227,3 @@
 .quick-ask-selection-followup input { flex: 1; min-width: 0; }
 .quick-ask-selection-header .quick-ask-selection-save { order: -1; font-size: var(--font-ui-small); padding: 3px 8px; }
 .quick-ask-selection-header .quick-ask-selection-save { margin-right: auto; }
-
-.quick-ask-selection-search-status { padding: 4px 12px 0; color: var(--text-muted); font-size: var(--font-ui-smaller); }
-.quick-ask-selection-search-status[hidden] { display: none; }
